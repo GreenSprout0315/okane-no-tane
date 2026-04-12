@@ -1,7 +1,7 @@
 "use client";
 
-// ひなたちゃん - SVGキャラクター
-export function Character({ mood }: { mood: "happy" | "neutral" | "sad" | "excited" }) {
+// キャラクター - SVG
+export function Character({ mood, ribbonColor = "#FF6B9D" }: { mood: "happy" | "neutral" | "sad" | "excited"; ribbonColor?: string }) {
   const mouthPaths: Record<string, string> = {
     happy: "M 35 52 Q 40 58 45 52",     // にっこり
     neutral: "M 35 52 L 45 52",          // まっすぐ
@@ -21,7 +21,7 @@ export function Character({ mood }: { mood: "happy" | "neutral" | "sad" | "excit
       {/* 髪の毛（前髪） */}
       <path d="M 18 30 Q 25 12 40 15 Q 55 12 62 30 L 58 28 Q 50 18 40 20 Q 30 18 22 28 Z" fill="#5B3A29" />
       {/* リボン */}
-      <path d="M 25 20 L 18 14 L 25 18 L 32 14 Z" fill="#FF6B9D" />
+      <path d="M 25 20 L 18 14 L 25 18 L 32 14 Z" fill={ribbonColor} />
       {/* 目 */}
       <ellipse cx="33" cy="35" rx="3" ry="3.5" fill="#2D1B10" />
       <ellipse cx="47" cy="35" rx="3" ry="3.5" fill="#2D1B10" />
@@ -34,7 +34,7 @@ export function Character({ mood }: { mood: "happy" | "neutral" | "sad" | "excit
       {/* 口 */}
       <path d={mouthPaths[mood]} stroke="#C96B5F" strokeWidth="1.5" fill={mood === "excited" ? "#FF9999" : "none"} strokeLinecap="round" />
       {/* 体（ワンピース） */}
-      <path d="M 28 55 Q 25 60 22 80 L 58 80 Q 55 60 52 55 Z" fill="#FF6B9D" />
+      <path d="M 28 55 Q 25 60 22 80 L 58 80 Q 55 60 52 55 Z" fill={ribbonColor} />
       {/* 襟 */}
       <path d="M 34 55 L 40 62 L 46 55" stroke="white" strokeWidth="1.5" fill="none" />
       {/* 腕 */}

@@ -13,12 +13,39 @@ import { Character } from "@/components/Character";
 import { Garden } from "@/components/Garden";
 import { IndexChart, PortfolioChart } from "@/components/Chart";
 
-const STORAGE_KEY = "okane-no-tane-save";
+interface PlayerProfile {
+  name: string;
+  color: string;
+  ribbonColor: string;
+  headerFrom: string;
+  headerTo: string;
+}
 
-function loadGame(): GameState {
+const PLAYERS: Record<string, PlayerProfile> = {
+  kotone: {
+    name: "ことね",
+    color: "text-pink-600",
+    ribbonColor: "#FF6B9D",
+    headerFrom: "from-pink-400",
+    headerTo: "to-orange-300",
+  },
+  iroha: {
+    name: "いろは",
+    color: "text-purple-600",
+    ribbonColor: "#A78BFA",
+    headerFrom: "from-purple-400",
+    headerTo: "to-blue-300",
+  },
+};
+
+function storageKey(playerId: string) {
+  return `okane-no-tane-${playerId}`;
+}
+
+function loadGame(playerId: string): GameState {
   if (typeof window === "undefined") return createInitialState();
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(storageKey(playerId));
     if (saved) return JSON.parse(saved);
   } catch {
     // ignore
@@ -26,23 +53,63 @@ function loadGame(): GameState {
   return createInitialState();
 }
 
-function saveGame(state: GameState) {
+function saveGame(playerId: string, state: GameState) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(storageKey(playerId), JSON.stringify(state));
   } catch {
     // ignore
   }
 }
 
-export default function Home() {
-  const [game, setGame] = useState<GameState>(loadGame);
+function loadSelectedPlayer(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("okane-no-tane-player");
+}
+
+function saveSelectedPlayer(playerId: string) {
+  localStorage.setItem("okane-no-tane-player", playerId);
+}
+
+// --- キャラクター選択画面 ---
+function PlayerSelect({ onSelect }: { onSelect: (id: string) => void }) {
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-pink-50 via-yellow-50 to-purple-50 flex flex-col">
+      <header className="bg-gradient-to-r from-pink-400 to-purple-400 text-white py-4 px-4 shadow-lg">
+        <h1 className="text-center text-xl font-bold tracking-wider">
+          🌱 おかねのタネ 🌸
+        </h1>
+        <p className="text-center text-xs opacity-90">だれであそぶ？</p>
+      </header>
+
+      <main className="flex-1 flex items-center justify-center px-4">
+        <div className="flex gap-6">
+          {Object.entries(PLAYERS).map(([id, player]) => (
+            <button
+              key={id}
+              onClick={() => onSelect(id)}
+              className="bg-white rounded-3xl p-6 shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer flex flex-col items-center gap-3 border-2 border-transparent hover:border-pink-200"
+            >
+              <Character mood="happy" ribbonColor={player.ribbonColor} />
+              <p className={`text-lg font-bold ${player.color}`}>{player.name}</p>
+            </button>
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// --- メインゲーム画面 ---
+function GameScreen({ playerId, onBack }: { playerId: string; onBack: () => void }) {
+  const player = PLAYERS[playerId];
+  const [game, setGame] = useState<GameState>(() => loadGame(playerId));
   const [showMessage, setShowMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"garden" | "index" | "portfolio">("garden");
 
   const updateGame = useCallback((newState: GameState) => {
     setGame(newState);
-    saveGame(newState);
-  }, []);
+    saveGame(playerId, newState);
+  }, [playerId]);
 
   const handleDeposit = () => {
     const newState = advanceDay(game);
@@ -87,19 +154,27 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-50 via-yellow-50 to-green-50">
       {/* ヘッダー */}
-      <header className="bg-gradient-to-r from-pink-400 to-orange-300 text-white py-3 px-4 shadow-lg">
-        <h1 className="text-center text-xl font-bold tracking-wider">
-          🌱 おかねのタネ 🌸
-        </h1>
-        <p className="text-center text-xs opacity-90">まいにち100円、おかねをそだてよう！</p>
+      <header className={`bg-gradient-to-r ${player.headerFrom} ${player.headerTo} text-white py-3 px-4 shadow-lg`}>
+        <div className="max-w-md mx-auto flex items-center justify-between">
+          <button onClick={onBack} className="text-white/80 hover:text-white text-sm cursor-pointer">
+            ← もどる
+          </button>
+          <div className="text-center">
+            <h1 className="text-xl font-bold tracking-wider">
+              🌱 おかねのタネ 🌸
+            </h1>
+            <p className="text-xs opacity-90">まいにち100円、おかねをそだてよう！</p>
+          </div>
+          <div className="w-12" />
+        </div>
       </header>
 
       <main className="max-w-md mx-auto px-4 py-4 space-y-4">
         {/* キャラクターエリア */}
         <div className="flex items-center justify-center gap-4">
-          <Character mood={mood} />
+          <Character mood={mood} ribbonColor={player.ribbonColor} />
           <div className="space-y-1">
-            <p className="text-lg font-bold text-pink-600">ことね</p>
+            <p className={`text-lg font-bold ${player.color}`}>{player.name}</p>
             <p className="text-xs text-gray-500">
               {game.currentDay === 0
                 ? "はじめまして！"
@@ -184,7 +259,7 @@ export default function Home() {
           {activeTab === "portfolio" && <PortfolioChart records={game.records} />}
         </div>
 
-        {/* おひさま指数の説明 */}
+        {/* S&P500の説明 */}
         <div className="bg-yellow-50 rounded-xl p-3 border border-yellow-200">
           <p className="text-xs text-yellow-800 font-bold mb-1">📈 S&P500ってなに？</p>
           <p className="text-xs text-yellow-700 leading-relaxed">
@@ -211,4 +286,25 @@ export default function Home() {
       </main>
     </div>
   );
+}
+
+// --- ルート ---
+export default function Home() {
+  const [playerId, setPlayerId] = useState<string | null>(loadSelectedPlayer);
+
+  const handleSelect = (id: string) => {
+    saveSelectedPlayer(id);
+    setPlayerId(id);
+  };
+
+  const handleBack = () => {
+    setPlayerId(null);
+    localStorage.removeItem("okane-no-tane-player");
+  };
+
+  if (!playerId) {
+    return <PlayerSelect onSelect={handleSelect} />;
+  }
+
+  return <GameScreen playerId={playerId} onBack={handleBack} />;
 }
