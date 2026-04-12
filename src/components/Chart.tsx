@@ -44,7 +44,7 @@ export function PortfolioChart({ records }: { records: DayRecord[] }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#bbf7d0" />
           <XAxis dataKey="day" tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(data.length / 6) - 1)} />
           <YAxis tick={{ fontSize: 10 }} />
-          <Tooltip formatter={(value: number) => `${value.toLocaleString()}円`} />
+          <Tooltip formatter={(value) => `${Number(value).toLocaleString()}円`} />
           <Area type="monotone" dataKey="元本" stroke="#94a3b8" fill="#e2e8f0" strokeWidth={1} />
           <Area type="monotone" dataKey="評価額" stroke="#22c55e" fill="#bbf7d0" strokeWidth={2} />
         </AreaChart>
