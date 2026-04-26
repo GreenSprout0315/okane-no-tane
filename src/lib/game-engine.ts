@@ -1,5 +1,7 @@
 // おかねのタネ - ゲームエンジン
 
+export type Regime = "normal" | "correction" | "bear";
+
 export interface DayRecord {
   day: number;
   date: string;
@@ -10,6 +12,7 @@ export interface DayRecord {
   totalUnits: number; // 累計口数
   portfolioValue: number; // 評価額
   profit: number; // 損益
+  regime?: Regime; // 相場局面（記録用）
 }
 
 export interface GameState {
@@ -19,6 +22,9 @@ export interface GameState {
   indexHistory: number[];
   records: DayRecord[];
   seed: number; // 乱数シード
+  volatility?: number; // 直近ボラティリティ（1.0=平常）
+  regime?: Regime; // 現在の相場局面
+  regimeDaysLeft?: number; // 局面の残日数
 }
 
 // シンプルな疑似乱数生成器（シード付き）
@@ -27,24 +33,94 @@ function seededRandom(seed: number): { value: number; nextSeed: number } {
   return { value: next / 0x7fffffff, nextSeed: next };
 }
 
-// S&P500風の指数を生成（実際のS&P500に近い変動特性）
-function generateNextIndex(prevIndex: number, seed: number): { index: number; nextSeed: number } {
-  const r1 = seededRandom(seed);
-  const r2 = seededRandom(r1.nextSeed);
+// NISA（S&P500等）を模した変動ロジック。
+// 通常は年+7〜10%で上昇、ボラティリティ・クラスタリングで荒れる時期が続き、
+// 年1回程度の軽い調整（-5〜10%）、数年に1回の弱気相場（-20〜30%）を混ぜる。
+interface NextStep {
+  index: number;
+  nextSeed: number;
+  volatility: number;
+  regime: Regime;
+  regimeDaysLeft: number;
+}
 
-  // 正規分布に近い乱数（Box-Muller的な近似）
-  const normalish = (r1.value + r2.value - 1) * 1.5;
+function generateNextStep(
+  prevIndex: number,
+  seed: number,
+  prevVolatility: number,
+  prevRegime: Regime,
+  prevRegimeDaysLeft: number
+): NextStep {
+  let s = seed;
+  const rand = () => {
+    const r = seededRandom(s);
+    s = r.nextSeed;
+    return r.value;
+  };
 
-  // 日次変動率: 平均+0.04%（年率約10%の上昇トレンド、S&P500の歴史的平均）、標準偏差1.1%
-  const dailyReturn = 0.0004 + normalish * 0.011;
+  // --- 1. 局面遷移 ---
+  let regime: Regime = prevRegime;
+  let daysLeft = prevRegimeDaysLeft - 1;
 
-  // たまに大きな変動（3%の確率で2倍の変動 = 決算シーズンなど）
-  const r3 = seededRandom(r2.nextSeed);
-  const multiplier = r3.value < 0.03 ? 2.0 : 1.0;
+  if (daysLeft <= 0 && regime !== "normal") {
+    // 調整／弱気が終わったら通常に戻る
+    regime = "normal";
+    daysLeft = 0;
+  }
 
-  const newIndex = Math.max(500, prevIndex * (1 + dailyReturn * multiplier));
+  if (regime === "normal") {
+    // 通常局面からの発生判定
+    const r = rand();
+    if (r < 0.0004) {
+      // 弱気相場：約7年に1回（60〜120日、累計-15〜-30%）
+      regime = "bear";
+      daysLeft = 60 + Math.floor(rand() * 60);
+    } else if (r < 0.006) {
+      // 軽い調整：年1〜2回（15〜40日、累計-5〜-12%）
+      regime = "correction";
+      daysLeft = 15 + Math.floor(rand() * 25);
+    }
+  }
 
-  return { index: Math.round(newIndex * 10) / 10, nextSeed: r3.nextSeed };
+  // --- 2. 局面ごとのドリフト（日次平均リターン） ---
+  let drift: number;
+  if (regime === "bear") drift = -0.0018;
+  else if (regime === "correction") drift = -0.003;
+  else drift = 0.0009; // 通常: +0.09%/日 → 年率約20% … 下落局面と合わせて長期+7〜10%に着地
+
+  // --- 3. ボラティリティ・クラスタリング（GARCH-lite） ---
+  // 下落局面は高ボラが続く。平常時は1.0に緩やかに回帰。
+  const targetVol = regime === "normal" ? 1.0 : 1.9;
+  const volatility = Math.min(
+    3.0,
+    Math.max(0.5, prevVolatility * 0.95 + targetVol * 0.05)
+  );
+
+  // --- 4. 日次リターン ---
+  const r1 = rand();
+  const r2 = rand();
+  const normalish = (r1 + r2 - 1) * 2; // Box-Muller近似
+  const baseStdev = 0.008; // 基礎ボラ0.8%
+  let dailyReturn = drift + normalish * baseStdev * volatility;
+
+  // --- 5. まれに大きなジャンプ（決算・地政学リスク等） ---
+  const rJump = rand();
+  if (rJump < 0.015) {
+    const rDir = rand();
+    // 下落局面では下方向に偏りやすい
+    const bias = regime === "normal" ? 0 : -0.01;
+    dailyReturn += (rDir - 0.5) * 0.04 + bias;
+  }
+
+  const newIndex = Math.max(500, prevIndex * (1 + dailyReturn));
+
+  return {
+    index: Math.round(newIndex * 10) / 10,
+    nextSeed: s,
+    volatility,
+    regime,
+    regimeDaysLeft: daysLeft,
+  };
 }
 
 // ゲーム日付をフォーマット
@@ -66,6 +142,9 @@ export function createInitialState(): GameState {
     indexHistory: [initialIndex],
     records: [],
     seed: initialSeed,
+    volatility: 1.0,
+    regime: "normal",
+    regimeDaysLeft: 0,
   };
 }
 
@@ -74,38 +153,47 @@ export function advanceDay(state: GameState): GameState {
   const deposit = 100;
   const newDay = state.currentDay + 1;
 
-  // 新しい指数を生成
   const prevIndex = state.indexHistory[state.indexHistory.length - 1];
-  const { index: newIndex, nextSeed } = generateNextIndex(prevIndex, state.seed);
+  const step = generateNextStep(
+    prevIndex,
+    state.seed,
+    state.volatility ?? 1.0,
+    state.regime ?? "normal",
+    state.regimeDaysLeft ?? 0
+  );
 
   // 100円で口数を購入（指数が価格）
-  const unitsBought = deposit / newIndex;
+  const unitsBought = deposit / step.index;
   const newTotalUnits = state.totalUnits + unitsBought;
   const newTotalDeposited = state.totalDeposited + deposit;
 
   // 評価額
-  const portfolioValue = Math.round(newTotalUnits * newIndex);
+  const portfolioValue = Math.round(newTotalUnits * step.index);
   const profit = portfolioValue - newTotalDeposited;
 
   const record: DayRecord = {
     day: newDay,
     date: formatGameDate(newDay),
-    indexValue: newIndex,
+    indexValue: step.index,
     deposited: deposit,
     totalDeposited: newTotalDeposited,
     units: Math.round(unitsBought * 10000) / 10000,
     totalUnits: Math.round(newTotalUnits * 10000) / 10000,
     portfolioValue,
     profit,
+    regime: step.regime,
   };
 
   return {
     currentDay: newDay,
     totalDeposited: newTotalDeposited,
     totalUnits: newTotalUnits,
-    indexHistory: [...state.indexHistory, newIndex],
+    indexHistory: [...state.indexHistory, step.index],
     records: [...state.records, record],
-    seed: nextSeed,
+    seed: step.nextSeed,
+    volatility: step.volatility,
+    regime: step.regime,
+    regimeDaysLeft: step.regimeDaysLeft,
   };
 }
 
